@@ -1,0 +1,188 @@
+Ass-6
+from IPython.core.interactiveshell import InteractiveShell
+import seaborn as sns
+# PyTorch
+from torchvision import transforms, datasets, models
+import torch
+from torch import optim, cuda
+from torch.utils.data import DataLoader, sampler
+import torch.nn as nn
+import warnings
+warnings.filterwarnings('ignore', category=FutureWarning)
+# Data science tools
+import numpy as np
+import pandas as pd
+import os
+# Image manipulations
+from PIL import Image
+# Useful for examining network
+from torchsummary import summary
+# Timing utility
+from timeit import default_timer as timer
+# Visualizations
+import matplotlib.pyplot as plt
+%matplotlib inline
+plt.rcParams['font.size'] = 14
+# Printing out all outputs
+InteractiveShell.ast_node_interactivity = 'all'
+datadir = '/home/wjk68/'
+traindir = datadir + 'train/'
+validdir = datadir + 'valid/'
+testdir = datadir + 'test/'
+save_file_name = 'vgg16-transfer-4.pt'
+checkpoint_path = 'vgg16-transfer-4.pth'
+# Change to fit hardware
+batch_size = 128
+# Whether to train on a gpu
+train_on_gpu = cuda.is_available()
+print(f'Train on gpu: {train_on_gpu}')
+# Number of gpus
+if train_on_gpu:
+ gpu_count = cuda.device_count()
+ print(f'{gpu_count} gpus detected.')
+ if gpu_count > 1:
+ multi_gpu = True
+ else: multi_gpu = False
+# Empty lists
+categories = []
+img_categories = []
+n_train = []
+n_valid = []
+n_test = []
+hs = []
+ws = []
+# Iterate through each category
+for d in os.listdir(traindir):
+ categories.append(d)
+ # Number of each image
+ train_imgs = os.listdir(traindir + d)
+ valid_imgs = os.listdir(validdir + d)
+ test_imgs = os.listdir(testdir + d)
+ n_train.append(len(train_imgs))
+ n_valid.append(len(valid_imgs))
+ n_test.append(len(test_imgs))
+ # Find stats for train images
+ for i in train_imgs:
+ img_categories.append(d)
+ img = Image.open(traindir + d + '/' + i)
+ img_array = np.array(img)
+ # Shape
+ hs.append(img_array.shape[0])
+ ws.append(img_array.shape[1])
+# Dataframe of categories
+cat_df = pd.DataFrame({'category': categories,
+ 'n_train': n_train,
+ 'n_valid': n_valid, 'n_test': n_test}).\
+ sort_values('category')
+# Dataframe of training images
+image_df = pd.DataFrame({
+ 'category': img_categories,
+ 'height': hs,
+ 'width': ws
+})
+cat_df.sort_values('n_train', ascending=False, inplace=True)
+cat_df.head()
+cat_df.tail()
+cat_df.set_index('category')['n_train'].plot.bar(
+ color='r', figsize=(20, 6))
+plt.xticks(rotation=80)
+plt.ylabel('Count')
+plt.title('Training Images by Category')
+cat_df.set_index('category').iloc[:50]['n_train'].plot.bar(
+ color='r', figsize=(20, 6))
+plt.xticks(rotation=80)
+plt.ylabel('Count')
+plt.title('Training Images by Category')
+img_dsc = image_df.groupby('category').describe()
+img_dsc.head()
+plt.figure(figsize=(10, 6))
+sns.kdeplot(
+ img_dsc['height']['mean'], label='Average Height')
+sns.kdeplot(
+ img_dsc['width']['mean'], label='Average Width')
+plt.xlabel('Pixels')
+plt.ylabel('Density')
+plt.title('Average Size Distribution')
+def imshow(image):
+ """Display image"""
+ plt.figure(figsize=(6, 6))
+ plt.imshow(image)
+ plt.axis('off')
+ plt.show()
+# Example image
+x = Image.open(traindir + 'ewer/image_0002.jpg')
+np.array(x).shape
+imshow(x)
+x = Image.open(traindir + 'joshua_tree/image_0002.jpg')
+np.array(x).shape
+imshow(x)
+# Image transformations
+image_transforms = {
+ # Train uses data augmentation
+ 'train':
+ transforms.Compose([
+ transforms.RandomResizedCrop(size=256, scale=(0.8, 1.0)),
+ transforms.RandomRotation(degrees=15),
+ transforms.ColorJitter(),
+ transforms.RandomHorizontalFlip(),
+ transforms.CenterCrop(size=224), # Image net standards
+ transforms.ToTensor(),
+ transforms.Normalize([0.485, 0.456, 0.406],
+ [0.229, 0.224, 0.225]) # Imagenet standards
+ ]),
+ # Validation does not use augmentation
+ 'val':
+ transforms.Compose([
+ transforms.Resize(size=256),
+ transforms.CenterCrop(size=224),
+ transforms.ToTensor(),
+ transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+ ]),
+ # Test does not use augmentation
+ 'test':
+ transforms.Compose([
+ transforms.Resize(size=256),
+ transforms.CenterCrop(size=224),
+ transforms.ToTensor(),
+ transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+ ]),
+}
+def imshow_tensor(image, ax=None, title=None):
+ """Imshow for Tensor."""
+ if ax is None:
+ fig, ax = plt.subplots()
+ # Set the color channel as the third dimension
+ image = image.numpy().transpose((1, 2, 0))
+ # Reverse the preprocessing steps
+ mean = np.array([0.485, 0.456, 0.406])
+ std = np.array([0.229, 0.224, 0.225])
+ image = std * image + mean
+ # Clip the image pixel values
+ image = np.clip(image, 0, 1)
+ ax.imshow(image)
+ plt.axis('off')
+ return ax, image
+ 
+ex_img = Image.open('/home/wjk68/train/elephant/image_0024.jpg')
+imshow(ex_img)
+
+t = image_transforms['train']
+plt.figure(figsize=(24, 24))
+
+for i in range(16):
+    ax = plt.subplot(4, 4, i + 1)
+    _ = imshow_tensor(t(ex_img), ax=ax)
+
+plt.tight_layout()
+
+ex_img = Image.open('/home/wjk68/train/sea_horse/image_0056.jpg')
+plt.figure(figsize=(24, 24))
+
+for i in range(16):
+    ax = plt.subplot(4, 4, i + 1)
+    _ = imshow_tensor(t(ex_img), ax=ax)
+
+plt.tight_layout()
+ 
+
+ 
